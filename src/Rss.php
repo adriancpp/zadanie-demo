@@ -1,45 +1,78 @@
 <?php
 
-include_once('.\vendor\dg\rss-php\src\Feed.php');
+namespace AdrianWitkowskiRekrutacjaHRtec\Rss;
+
+include_once('Tools.php');
+
+use SimpleXMLElement;
+use AdrianWitkowskiRekrutacjaHRtec\Tools\Tools as Tools;
 
 class Rss
 {
     private $filename;
     private $url;
+    private $mode;
+    private $rss;
+
+    private $tools;
 
     private $CLI_HELP_INFO = "Wybierz jedno z poleceń:
         csv:simple
         csv:extended";
 
-    private function parseRSS($xml)
+    public function toCsv()
     {
-        $myfile = fopen($this->filename, "w");
-
-        $txt = "<strong>".$xml->channel->title."</strong>";
-        fwrite($myfile, $txt);
-        $cnt = count($xml->channel->item);
-        for($i=0; $i<$cnt; $i++)
+        $rss = $this->rss;
+        
+        if( $this->mode == 0 )
+            $fp = fopen( $this->filename, "w" );
+        else if( $this->mode == 1 )
         {
-        $url 	= $xml->channel->item[$i]->link;
-        $title 	= $xml->channel->item[$i]->title;
-        $desc = $xml->channel->item[$i]->description;
+            $current = file_get_contents( $this->filename );
 
-        $txt = '<a href="'.$url.'">'.$title.'</a>'.$desc.'';
-        fwrite($myfile, $txt);
+            $fp = fopen( $this->filename, "w" );
+            fwrite( $fp, $current );
         }
 
-        fclose($myfile);
+        $cnt = count($rss->channel->item);
+        for( $i=0; $i < $cnt; $i++ )
+        {
+            $columns = array();
+            
+            // pobranie danych
+            $title = $rss->channel->item[$i]->title;
+            $description = strip_tags( $rss->channel->item[$i]->description );
+            $link = $rss->channel->item[$i]->link;
+            $pubDate = $this->tools->dateV('j f Y H:m:s',strtotime( $rss->channel->item[$i]->pubDate ));
+            $creator = $rss->channel->item[$i]->children('http://purl.org/dc/elements/1.1/')->creator;
+
+            // dodanie do kolumny
+            $columns[] = $title;
+            $columns[] = $description;
+            $columns[] = $link;
+            $columns[] = $pubDate;
+            $columns[] = $creator;
+
+            fputcsv($fp, $columns);
+        }
+
+        fclose($fp);
     }
 
     public function init()
     {
-        $this->filename = "test.xml";
-        $this->url = "https://blog.nationalgeographic.org/rss";
+        // przygotowanie pod kodowanie daty według PL
+        date_default_timezone_set('Europe/Warsaw');
+        $this->tools = new Tools();
 
-        $doc = new SimpleXMLElement(file_get_contents($this->url));
-
-        $this->parseRSS($doc);
-
+        try
+        {
+            $this->rss = new SimpleXMLElement(file_get_contents($this->url));
+        }
+        catch( Exception $e ) 
+        {
+            echo "Wystąpił błąd przy pobieraniu rss: ".$e; 
+        }
     }
 
     public function checkParameters( $argc, $argv ): bool
@@ -64,6 +97,23 @@ class Rss
             echo $this->CLI_HELP_INFO;
             exit;
         }
+        else
+        {
+            if($argv[1] == "csv:simple")
+                $this->mode = 0;
+            else if($argv[1] == "csv:extended")
+                $this->mode = 1;
+        }
+
+        if(isset($argv[2]) )
+            $this->url = $argv[2];
+        else
+            $this->url = "https://blog.nationalgeographic.org/rss";
+
+        if(isset($argv[3]) )
+            $this->filename = $argv[3];
+        else
+            $this->filename = "simple_export.csv";
 
         return true;
     }
